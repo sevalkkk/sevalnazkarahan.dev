@@ -108,15 +108,17 @@ export default function Home() {
         let response: Response;
         if (!alreadyCounted) {
           localStorage.setItem("portfolio_has_counted", "true");
-          response = await fetch("/api/visitor", {
+          response = await fetch(`/api/visitor?t=${Date.now()}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ deviceId }),
+            cache: "no-store",
           });
         } else {
-          response = await fetch("/api/visitor", {
+          response = await fetch(`/api/visitor?t=${Date.now()}`, {
             method: "GET",
             headers: { "Content-Type": "application/json" },
+            cache: "no-store",
           });
         }
 
@@ -132,6 +134,21 @@ export default function Home() {
     }
 
     handleVisitor();
+
+    // Sayfaya her odaklanıldığında veya sekme yenilendiğinde en taze canlı sayıyı çek
+    const handleFocus = () => {
+      fetch(`/api/visitor?t=${Date.now()}`, { cache: "no-store" })
+        .then((res) => res.json())
+        .then((data) => {
+          if (typeof data?.count === "number") {
+            setVisitorCount(data.count);
+          }
+        })
+        .catch(() => {});
+    };
+
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
   }, []);
 
   const bannerRef = useRef(null);

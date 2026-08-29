@@ -75,13 +75,17 @@ function generateFingerprint(ip: string, deviceId: string, userAgent: string): s
   return crypto.createHash("sha256").update(`${cleanIp}_${cleanDevice}_${cleanUa}`).digest("hex");
 }
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const store = readVisitorStore();
   return NextResponse.json(
     { count: store.count },
     {
       headers: {
-        "Cache-Control": "no-store, max-age=0",
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        Pragma: "no-cache",
+        Expires: "0",
       },
     }
   );
