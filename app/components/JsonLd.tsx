@@ -21,8 +21,12 @@ export default function JsonLd() {
     },
     sameAs: [
       "https://www.linkedin.com/in/seval-naz-karahan-188525210/",
+      "https://github.com/sevalkkk",
     ],
     knowsAbout: [
+      "Software Developer",
+      "RPA Developer",
+      "Automation Engineer",
       "Robotic Process Automation (RPA)",
       "UiPath Studio & Orchestrator",
       "C# & .NET Programming",
@@ -35,6 +39,7 @@ export default function JsonLd() {
       "Enterprise Solution Architecture",
       "SQL & Database Querying",
       "RESTful API & Webhook Integrations",
+      "Artificial Intelligence & LLM Integration",
     ],
   };
 
