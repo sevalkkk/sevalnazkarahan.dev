@@ -24,15 +24,41 @@ export default function ContactPage() {
     setFeedbackMessage("");
     const formElement = e.target;
     const formData = new FormData(formElement);
+    const formValues = Object.fromEntries(formData);
 
     try {
-      const res = await fetch("/api/contact", {
+      let res = await fetch("/api/contact", {
         method: "POST",
-        body: JSON.stringify(Object.fromEntries(formData)),
+        body: JSON.stringify(formValues),
         headers: { "Content-Type": "application/json" },
       });
 
-      const data = await res.json();
+      let data = await res.json().catch(() => ({}));
+
+      // Güçlendirilmiş İstemci Yedekleme Köprüsü
+      if (!res.ok || !data.success) {
+        const directRes = await fetch("https://formsubmit.co/ajax/sevalnazkarahan@gmail.com", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            name: formValues.name,
+            email: formValues.email,
+            message: formValues.message,
+            _subject: `[Portfolyo] ${formValues.name} yeni mesaj gönderdi`,
+            _replyto: formValues.email,
+            _template: "table",
+            _captcha: "false",
+          }),
+        });
+        const directData = await directRes.json().catch(() => ({}));
+        if (directRes.ok && directData.success === "true") {
+          data = { success: true };
+          res = { ok: true, status: 200 };
+        }
+      }
 
       if (res.ok && data.success) {
         setStatus("success");
@@ -46,8 +72,8 @@ export default function ContactPage() {
         setStatus("rate_limited");
         setFeedbackMessage(
           language === "TR"
-            ? data.messageTR || "Bu e-posta adresiyle son 24 saat içinde zaten bir mesaj gönderdiniz."
-            : data.messageEN || "You have already sent a message from this email in the last 24 hours."
+            ? data.messageTR || "Lütfen yeni bir mesaj göndermeden önce birkaç saniye bekleyin."
+            : data.messageEN || "Please wait a few seconds before sending another message."
         );
       } else {
         setStatus("error");

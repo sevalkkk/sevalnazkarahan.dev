@@ -4,8 +4,8 @@ import { Resend } from "resend";
 // In-memory rate limiting map: email (lowercase) -> timestamp of last successful submission
 const emailSubmissionsMap = new Map<string, number>();
 
-// 24 hours in milliseconds
-const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+// 10 seconds anti-double-click protection
+const RATE_LIMIT_WINDOW_MS = 10 * 1000;
 
 export async function POST(request: Request) {
   try {
@@ -40,21 +40,17 @@ export async function POST(request: Request) {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // 2. Rate Limiting Check (24 Hours per email)
+    // 2. Anti-spam check (10 seconds)
     const now = Date.now();
     const lastSubmissionTime = emailSubmissionsMap.get(normalizedEmail);
 
     if (lastSubmissionTime && now - lastSubmissionTime < RATE_LIMIT_WINDOW_MS) {
-      const remainingMs = RATE_LIMIT_WINDOW_MS - (now - lastSubmissionTime);
-      const remainingHours = Math.max(1, Math.ceil(remainingMs / (1000 * 60 * 60)));
-
       return NextResponse.json(
         {
           success: false,
           error: "rate_limited",
-          remainingHours,
-          messageTR: `Bu e-posta adresiyle son 24 saat içinde zaten bir mesaj gönderdiniz. Lütfen ${remainingHours} saat sonra tekrar deneyin.`,
-          messageEN: `You have already sent a message from this email in the last 24 hours. Please try again in ${remainingHours} hours.`,
+          messageTR: "Lütfen yeni bir mesaj göndermeden önce birkaç saniye bekleyin.",
+          messageEN: "Please wait a few seconds before sending another message.",
         },
         { status: 429 }
       );
@@ -65,72 +61,94 @@ export async function POST(request: Request) {
     const resendApiKey = process.env.RESEND_API_KEY;
     const fromEmail = process.env.RESEND_FROM_EMAIL || "Portfolio Contact <onboarding@resend.dev>";
 
+    let sendSuccess = false;
+
+    // Method A: Resend (if API key configured)
     if (resendApiKey) {
-      const resend = new Resend(resendApiKey);
+      try {
+        const resend = new Resend(resendApiKey);
 
-      const emailHtml = `
-        <div style="font-family: Arial, sans-serif; background-color: #0d0d0d; color: #ffffff; padding: 32px; border-radius: 16px; max-width: 600px; margin: 0 auto; border: 1px solid #262626;">
-          <div style="border-bottom: 2px solid #FB4617; padding-bottom: 16px; margin-bottom: 24px;">
-            <h2 style="color: #FB4617; margin: 0; font-size: 24px;">Yeni Portfolyo İletişim Mesajı</h2>
-            <p style="color: #888888; font-size: 12px; margin: 4px 0 0 0;">${new Date().toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}</p>
-          </div>
-          
-          <div style="margin-bottom: 20px;">
-            <p style="color: #888888; font-size: 12px; text-transform: uppercase; margin: 0 0 4px 0;">Gönderen Adı</p>
-            <p style="color: #ffffff; font-size: 16px; font-weight: bold; margin: 0;">${name}</p>
-          </div>
+        const emailHtml = `
+          <div style="font-family: Arial, sans-serif; background-color: #0d0d0d; color: #ffffff; padding: 32px; border-radius: 16px; max-width: 600px; margin: 0 auto; border: 1px solid #262626;">
+            <div style="border-bottom: 2px solid #FB4617; padding-bottom: 16px; margin-bottom: 24px;">
+              <h2 style="color: #FB4617; margin: 0; font-size: 24px;">Yeni Portfolyo İletişim Mesajı</h2>
+              <p style="color: #888888; font-size: 12px; margin: 4px 0 0 0;">${new Date().toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}</p>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+              <p style="color: #888888; font-size: 12px; text-transform: uppercase; margin: 0 0 4px 0;">Gönderen Adı</p>
+              <p style="color: #ffffff; font-size: 16px; font-weight: bold; margin: 0;">${name}</p>
+            </div>
 
-          <div style="margin-bottom: 20px;">
-            <p style="color: #888888; font-size: 12px; text-transform: uppercase; margin: 0 0 4px 0;">E-posta Adresi</p>
-            <p style="color: #ffffff; font-size: 16px; margin: 0;">
-              <a href="mailto:${email}" style="color: #FB4617; text-decoration: none;">${email}</a>
-            </p>
-          </div>
+            <div style="margin-bottom: 20px;">
+              <p style="color: #888888; font-size: 12px; text-transform: uppercase; margin: 0 0 4px 0;">E-posta Adresi</p>
+              <p style="color: #ffffff; font-size: 16px; margin: 0;">
+                <a href="mailto:${email}" style="color: #FB4617; text-decoration: none;">${email}</a>
+              </p>
+            </div>
 
-          <div style="margin-bottom: 28px;">
-            <p style="color: #888888; font-size: 12px; text-transform: uppercase; margin: 0 0 8px 0;">Mesaj</p>
-            <div style="background-color: #171717; padding: 16px; border-radius: 8px; border-left: 4px solid #FB4617; color: #ededed; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">
-              ${message}
+            <div style="margin-bottom: 28px;">
+              <p style="color: #888888; font-size: 12px; text-transform: uppercase; margin: 0 0 8px 0;">Mesaj</p>
+              <div style="background-color: #171717; padding: 16px; border-radius: 8px; border-left: 4px solid #FB4617; color: #ededed; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">
+                ${message}
+              </div>
+            </div>
+
+            <div style="text-align: center; padding-top: 16px; border-top: 1px solid #262626;">
+              <a href="mailto:${email}?subject=Re: Portfolyo İletişim Formu" style="display: inline-block; background-color: #FB4617; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 14px;">
+                Doğrudan Yanıtla (${email})
+              </a>
             </div>
           </div>
+        `;
 
-          <div style="text-align: center; padding-top: 16px; border-top: 1px solid #262626;">
-            <a href="mailto:${email}?subject=Re: Portfolyo İletişim Formu" style="display: inline-block; background-color: #FB4617; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 14px;">
-              Doğrudan Yanıtla (${email})
-            </a>
-          </div>
-        </div>
-      `;
+        const { error } = await resend.emails.send({
+          from: fromEmail,
+          to: [receiverEmail],
+          replyTo: email.trim(),
+          subject: `[Portfolyo] ${name} size yeni bir mesaj gönderdi`,
+          html: emailHtml,
+        });
 
-      const { error } = await resend.emails.send({
-        from: fromEmail,
-        to: [receiverEmail],
-        replyTo: email.trim(),
-        subject: `[Portfolyo] ${name} size yeni bir mesaj gönderdi`,
-        html: emailHtml,
-      });
-
-      if (error) {
-        console.error("Resend send error:", error);
-        return NextResponse.json(
-          {
-            success: false,
-            error: "send_failed",
-            messageTR: "E-posta gönderilirken bir hata oluştu. Lütfen doğrudan mail atın.",
-            messageEN: "Failed to send email. Please reach out directly via email.",
-          },
-          { status: 500 }
-        );
+        if (!error) {
+          sendSuccess = true;
+        } else {
+          console.error("Resend send error:", error);
+        }
+      } catch (err) {
+        console.error("Resend execution error:", err);
       }
-    } else {
-      // RESEND_API_KEY is not set yet in local environment - log submission to server console
-      console.log("==================================================");
-      console.log("📬 NEW CONTACT FORM SUBMISSION (Simulated - No RESEND_API_KEY configured):");
-      console.log("From:", name, `<${normalizedEmail}>`);
-      console.log("To:", receiverEmail);
-      console.log("Message:", message);
-      console.log("👉 To receive live emails, add RESEND_API_KEY to your .env.local file.");
-      console.log("==================================================");
+    }
+
+    // Method B: Direct FormSubmit Delivery Bridge
+    if (!sendSuccess) {
+      try {
+        const formSubmitRes = await fetch(`https://formsubmit.co/ajax/${receiverEmail}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Origin: "https://www.sevalnazkarahan.dev",
+            Referer: "https://www.sevalnazkarahan.dev/contact",
+          },
+          body: JSON.stringify({
+            name: name.trim(),
+            email: normalizedEmail,
+            message: message.trim(),
+            _subject: `[Portfolyo] ${name.trim()} (${normalizedEmail}) yeni bir mesaj gönderdi`,
+            _replyto: normalizedEmail,
+            _template: "table",
+            _captcha: "false",
+          }),
+        });
+
+        const formSubmitData = await formSubmitRes.json().catch(() => ({}));
+        if (formSubmitRes.ok && formSubmitData.success === "true") {
+          sendSuccess = true;
+        }
+      } catch (err) {
+        console.error("Direct delivery bridge error:", err);
+      }
     }
 
     // 4. Update Rate Limit Cache on successful submission
