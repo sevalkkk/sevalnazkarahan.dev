@@ -68,6 +68,14 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon", type: "image/png" },
+    ],
+    shortcut: ["/icon.svg"],
+    apple: [{ url: "/apple-icon", type: "image/png" }],
+  },
   alternates: {
     canonical: "/",
     languages: {
@@ -102,9 +110,6 @@ export const metadata: Metadata = {
       "max-image-preview": "large",
       "max-snippet": -1,
     },
-  },
-  icons: {
-    icon: "/favicon.ico",
   },
   manifest: "/manifest.webmanifest",
 };
