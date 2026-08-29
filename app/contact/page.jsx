@@ -6,43 +6,17 @@ import { useLanguage } from "../context/LanguageContext";
 
 export default function ContactPage() {
   const { language, toggleLanguage } = useLanguage();
-  
-  // Akış Durumları
-  const [step, setStep] = useState("form"); // "form" | "otp"
-  const [status, setStatus] = useState("idle"); // "idle" | "sending_otp" | "verifying" | "success" | "rate_limited" | "error"
+  const [status, setStatus] = useState("idle"); // "idle" | "sending" | "success" | "rate_limited" | "error"
   const [feedbackMessage, setFeedbackMessage] = useState("");
-  
-  // Form Verileri ve Doğrulama
-  const [formData, setFormData] = useState({ name: "", email: "", message: "" });
-  const [otpCode, setOtpCode] = useState("");
-  const [verificationToken, setVerificationToken] = useState("");
-  const [timeLeft, setTimeLeft] = useState(300); // 5 dakika (300 sn)
 
   useEffect(() => {
     if (typeof document !== "undefined") {
       document.title =
         language === "TR"
-          ? "Seval Naz Karahan | İletişim & Yetkilendirme"
-          : "Seval Naz Karahan | Contact & Verification";
+          ? "Seval Naz Karahan | İletişim"
+          : "Seval Naz Karahan | Contact";
     }
   }, [language]);
-
-  // Geri Sayım Sayacı
-  useEffect(() => {
-    let timer;
-    if (step === "otp" && timeLeft > 0) {
-      timer = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [step, timeLeft]);
-
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
 
   // Sahte / Geçici (Disposable) e-posta sağlayıcıları listesi
   const DISPOSABLE_EMAIL_DOMAINS = new Set([
@@ -109,22 +83,26 @@ export default function ContactPage() {
     return true;
   };
 
-  // 1. ADIM: E-POSTA DOĞRULAMA KODU İSTEME (SEND OTP)
-  const handleRequestOtp = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setStatus("sending_otp");
+    setStatus("sending");
     setFeedbackMessage("");
+    const formElement = e.target;
+    const formData = new FormData(formElement);
+    const formValues = Object.fromEntries(formData);
 
-    const name = formData.name.trim();
-    const email = formData.email.trim().toLowerCase();
-    const message = formData.message.trim();
+    const name = (formValues.name || "").toString().trim();
+    const rawEmail = (formValues.email || "").toString().trim();
+    const email = rawEmail.toLowerCase();
+    const message = (formValues.message || "").toString().trim();
 
+    // 1. Ad & Mesaj Kontrolleri
     if (name.length < 2) {
       setStatus("error");
       setFeedbackMessage(
         language === "TR"
-          ? "Lütfen adınızı ve soyadınızı eksiksiz girin."
-          : "Please enter your full name."
+          ? "Lütfen geçerli bir ad ve soyad girin (en az 2 karakter)."
+          : "Please enter a valid full name (at least 2 characters)."
       );
       return;
     }
@@ -134,24 +112,26 @@ export default function ContactPage() {
       setFeedbackMessage(
         language === "TR"
           ? "Lütfen mesajınızı biraz daha detaylandırın (en az 5 karakter)."
-          : "Please enter a detailed message (at least 5 characters)."
+          : "Please provide a bit more detail in your message (at least 5 characters)."
       );
       return;
     }
 
+    // 2. Gerçek E-Posta Doğrulaması
     if (!validateEmail(email)) {
       setStatus("error");
       setFeedbackMessage(
         language === "TR"
           ? "Girdiğiniz e-posta adresi geçersiz veya sahte görünüyor. Lütfen gerçek ve aktif bir kurumsal/kişisel e-posta adresi girin (örn: adiniz@sirket.com veya adiniz@gmail.com)."
-          : "Invalid email address. Please provide a real and active email (e.g. name@company.com or name@gmail.com)."
+          : "The email address you entered is invalid. Please enter a real and active email address (e.g. name@company.com or name@gmail.com)."
       );
       return;
     }
 
-    // 24 Saatlik Yerel Limit Kontrolü
+    // 3. 24 Saat İçinde Aynı E-Posta ile Gönderim Sınırlaması (Rate Limit)
     const rateLimitKey = `portfolio_contact_limit_${email}`;
     const RATE_LIMIT_MS = 24 * 60 * 60 * 1000;
+
     if (typeof window !== "undefined") {
       const lastSentStr = localStorage.getItem(rateLimitKey);
       if (lastSentStr) {
@@ -163,7 +143,7 @@ export default function ContactPage() {
           setFeedbackMessage(
             language === "TR"
               ? `Bu e-posta adresiyle (${email}) son 24 saat içinde zaten bir mesaj ilettiniz. Yeni bir mesaj gönderebilmeniz için kalan süre: ${remainingHours} saat.`
-              : `You have already sent a message from this email (${email}) in the last 24 hours. Please wait ${remainingHours} hour(s).`
+              : `You have already sent a message from this email (${email}) in the last 24 hours. Please wait ${remainingHours} hour(s) before sending again.`
           );
           return;
         }
@@ -171,108 +151,39 @@ export default function ContactPage() {
     }
 
     try {
+      // Resend E-Posta Teslimatı
       const res = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "send_otp",
           name: name,
           email: email,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (res.ok && data.success && data.token) {
-        setVerificationToken(data.token);
-        setTimeLeft(300);
-        setStep("otp");
-        setStatus("idle");
-        setFeedbackMessage(
-          language === "TR"
-            ? `6 haneli doğrulama kodu ${email} adresinize gönderildi. Lütfen gelen kutunuzu (ve gereksiz/spam klasörünü) kontrol edin.`
-            : `6-digit verification code has been sent to ${email}. Please check your inbox and spam folder.`
-        );
-      } else if (res.status === 429 || data.error === "rate_limited") {
-        setStatus("rate_limited");
-        setFeedbackMessage(data.messageTR || "Bu e-posta ile son 24 saat içinde zaten mesaj gönderildi.");
-      } else {
-        setStatus("error");
-        setFeedbackMessage(data.messageTR || "Doğrulama kodu gönderilemedi. Lütfen e-posta adresinizi kontrol edin.");
-      }
-    } catch (err) {
-      console.error(err);
-      setStatus("error");
-      setFeedbackMessage(
-        language === "TR"
-          ? "Sunucu bağlantı hatası oluştu. Lütfen tekrar deneyin."
-          : "Connection error occurred. Please try again."
-      );
-    }
-  };
-
-  // 2. ADIM: OTP KODUNU DOĞRULA VE MESAJI İLET (VERIFY & SEND)
-  const handleVerifyAndSubmit = async (e) => {
-    e.preventDefault();
-    if (!otpCode || otpCode.trim().length !== 6) {
-      setStatus("error");
-      setFeedbackMessage(
-        language === "TR"
-          ? "Lütfen 6 haneli doğrulama kodunu eksiksiz girin."
-          : "Please enter the complete 6-digit verification code."
-      );
-      return;
-    }
-
-    if (timeLeft <= 0) {
-      setStatus("error");
-      setFeedbackMessage(
-        language === "TR"
-          ? "Doğrulama kodunun süresi dolmuş. Lütfen 'Yeni Kod İste' butonuna tıklayın."
-          : "Verification code has expired. Please request a new one."
-      );
-      return;
-    }
-
-    setStatus("verifying");
-    setFeedbackMessage("");
-
-    try {
-      const res = await fetch("/api/contact", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "verify_and_send",
-          name: formData.name.trim(),
-          email: formData.email.trim().toLowerCase(),
-          message: formData.message.trim(),
-          otp: otpCode.trim(),
-          token: verificationToken,
+          message: message,
         }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && data.success) {
-        // 24 Saatlik Mührü Kaydet
-        const rateLimitKey = `portfolio_contact_limit_${formData.email.trim().toLowerCase()}`;
         if (typeof window !== "undefined") {
           localStorage.setItem(rateLimitKey, Date.now().toString());
         }
         setStatus("success");
         setFeedbackMessage(
           language === "TR"
-            ? "✓ E-posta adresiniz başarıyla doğrulandı ve mesajınız Seval Naz Karahan'a iletildi! En kısa sürede sizinle iletişime geçeceğim."
-            : "✓ Your email has been successfully verified and delivered to Seval Naz Karahan! I will get back to you soon."
+            ? "Mesajınız başarıyla iletildi! En kısa sürede sizinle iletişime geçeceğim."
+            : "Your message has been sent successfully! I will reply soon."
         );
-        setFormData({ name: "", email: "", message: "" });
-        setOtpCode("");
+        formElement.reset();
+      } else if (res.status === 429 || data.error === "rate_limited") {
+        setStatus("rate_limited");
+        setFeedbackMessage(data.messageTR || "Bu e-posta ile son 24 saat içinde zaten bir mesaj gönderdiniz.");
       } else {
         setStatus("error");
         setFeedbackMessage(
           language === "TR"
-            ? data.messageTR || "Doğrulama kodu hatalı veya süresi dolmuş. Lütfen kontrol edip tekrar deneyin."
-            : data.messageEN || "Invalid verification code. Please check and try again."
+            ? data.messageTR || "Mesaj iletilemedi, lütfen daha sonra tekrar deneyin."
+            : data.messageEN || "Failed to send message, please try again later."
         );
       }
     } catch (err) {
@@ -280,8 +191,8 @@ export default function ContactPage() {
       setStatus("error");
       setFeedbackMessage(
         language === "TR"
-          ? "Bağlantı hatası oluştu. Lütfen tekrar deneyin."
-          : "Connection error occurred. Please try again."
+          ? "Bağlantı hatası oluştu. Lütfen doğrudan e-posta ile ulaşın."
+          : "Connection error occurred. Please contact directly via email."
       );
     }
   };
@@ -341,7 +252,7 @@ export default function ContactPage() {
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#FB4617] shadow-[0_0_8px_#FB4617]" />
             </span>
             <span className="text-xs font-mono text-[#FB4617] uppercase tracking-widest font-semibold block">
-              {language === "TR" ? "// İLETİŞİM & DOĞRULANMIŞ İŞ BİRLİĞİ" : "// GET IN TOUCH & VERIFIED INQUIRY"}
+              {language === "TR" ? "// İLETİŞİM & İŞ BİRLİĞİ" : "// GET IN TOUCH"}
             </span>
           </div>
           <h1 className="text-3xl sm:text-5xl md:text-6xl font-light tracking-tight leading-[1.1]">
@@ -383,174 +294,72 @@ export default function ContactPage() {
               </a>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-[#FB4617]">🛡️</span>
-              <span className="text-neutral-400">
-                {language === "TR" ? "E-Posta Sahipliği Doğrulama Korumalı (OTP)" : "Email Ownership Verified (OTP Protection)"}
-              </span>
+              <span className="text-[#FB4617]">📍</span>
+              <span>{language === "TR" ? "İzmir / Türkiye • Global / Uzaktan Çalışmaya Açık" : "Izmir / Türkiye • Available for Remote / Global Work"}</span>
             </div>
           </div>
         </div>
 
-        {/* Sağ Taraf: İki Aşamalı Güvenli Form Kutusu */}
+        {/* Sağ Taraf: Form Kutusu */}
         <div className="lg:col-span-6">
-          <div className="bg-neutral-900/80 backdrop-blur-md border border-neutral-800 p-6 sm:p-10 rounded-2xl sm:rounded-3xl shadow-2xl space-y-4 sm:space-y-5 relative">
+          <form onSubmit={handleSubmit} className="bg-neutral-900/80 backdrop-blur-md border border-neutral-800 p-6 sm:p-10 rounded-2xl sm:rounded-3xl shadow-2xl space-y-4 sm:space-y-5 relative">
+            <div>
+              <label className="block text-xs font-mono text-neutral-400 mb-2">
+                {language === "TR" ? "Adınız Soyadınız" : "Your Full Name"}
+              </label>
+              <input
+                required
+                name="name"
+                type="text"
+                placeholder={language === "TR" ? "Adınızı girin..." : "Enter your name..."}
+                className="w-full bg-[#0d0d0d] border border-neutral-800 rounded-xl px-4 py-3 sm:py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-[#FB4617] transition-colors"
+              />
+            </div>
 
-            {step === "form" ? (
-              /* AŞAMA 1: BİLGİ GİRİŞİ */
-              <form onSubmit={handleRequestOtp} className="space-y-4 sm:space-y-5">
-                <div>
-                  <label className="block text-xs font-mono text-neutral-400 mb-2">
-                    {language === "TR" ? "Adınız Soyadınız" : "Your Full Name"}
-                  </label>
-                  <input
-                    required
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder={language === "TR" ? "Adınızı girin..." : "Enter your name..."}
-                    className="w-full bg-[#0d0d0d] border border-neutral-800 rounded-xl px-4 py-3 sm:py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-[#FB4617] transition-colors"
-                  />
-                </div>
+            <div>
+              <label className="block text-xs font-mono text-neutral-400 mb-2">
+                {language === "TR" ? "E-posta Adresiniz" : "Your Work Email"}
+              </label>
+              <input
+                required
+                name="email"
+                type="email"
+                placeholder="ad@sirket.com"
+                className="w-full bg-[#0d0d0d] border border-neutral-800 rounded-xl px-4 py-3 sm:py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-[#FB4617] transition-colors"
+              />
+            </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-xs font-mono text-neutral-400">
-                      {language === "TR" ? "E-posta Adresiniz (Doğrulama Yapılacaktır)" : "Your Email (Will Be Verified)"}
-                    </label>
-                    <span className="text-[10px] font-mono text-[#FB4617]">🔒 6 Haneli Onay</span>
-                  </div>
-                  <input
-                    required
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder="ad@sirket.com"
-                    className="w-full bg-[#0d0d0d] border border-neutral-800 rounded-xl px-4 py-3 sm:py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-[#FB4617] transition-colors"
-                  />
-                </div>
+            <div>
+              <label className="block text-xs font-mono text-neutral-400 mb-2">
+                {language === "TR" ? "Mesajınız / Otomasyon İhtiyacınız" : "Your Message / Automation Scope"}
+              </label>
+              <textarea
+                required
+                name="message"
+                rows={4}
+                placeholder={language === "TR" ? "Sürecinizden veya iş birliği fikrinizden bahsedin..." : "Describe your process or project..."}
+                className="w-full bg-[#0d0d0d] border border-neutral-800 rounded-xl px-4 py-3 sm:py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-[#FB4617] transition-colors resize-none"
+              />
+            </div>
 
-                <div>
-                  <label className="block text-xs font-mono text-neutral-400 mb-2">
-                    {language === "TR" ? "Mesajınız / Otomasyon İhtiyacınız" : "Your Message / Automation Scope"}
-                  </label>
-                  <textarea
-                    required
-                    rows={4}
-                    value={formData.message}
-                    onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                    placeholder={language === "TR" ? "Sürecinizden veya iş birliği fikrinizden bahsedin..." : "Describe your process or project..."}
-                    className="w-full bg-[#0d0d0d] border border-neutral-800 rounded-xl px-4 py-3 sm:py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-[#FB4617] transition-colors resize-none"
-                  />
-                </div>
+            <button
+              disabled={status === "sending"}
+              type="submit"
+              className="w-full py-3.5 sm:py-4 rounded-xl bg-[#FB4617] hover:bg-[#e03d12] text-white text-sm font-medium transition-all duration-300 shadow-lg shadow-[#FB4617]/20 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+            >
+              {status === "sending" ? (
+                <>
+                  <span className="animate-spin text-base">⏳</span>
+                  <span>{language === "TR" ? "İletiliyor..." : "Sending..."}</span>
+                </>
+              ) : (
+                <>
+                  <span>✉️</span>
+                  <span>{language === "TR" ? "Mesaj Gönder" : "Send Message"}</span>
+                </>
+              )}
+            </button>
 
-                <button
-                  disabled={status === "sending_otp"}
-                  type="submit"
-                  className="w-full py-3.5 sm:py-4 rounded-xl bg-[#FB4617] hover:bg-[#e03d12] text-white text-sm font-medium transition-all duration-300 shadow-lg shadow-[#FB4617]/20 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
-                >
-                  {status === "sending_otp" ? (
-                    <>
-                      <span className="animate-spin text-base">⏳</span>
-                      <span>{language === "TR" ? "Doğrulama Kodu Gönderiliyor..." : "Sending Verification Code..."}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>🔒</span>
-                      <span>{language === "TR" ? "Doğrulama Kodu İste & Devam Et" : "Request Verification Code & Continue"}</span>
-                    </>
-                  )}
-                </button>
-              </form>
-            ) : (
-              /* AŞAMA 2: 6 HANELİ OTP KODU GİRİŞİ */
-              <form onSubmit={handleVerifyAndSubmit} className="space-y-5 animate-fadeIn">
-                <div className="text-center space-y-2 border-b border-neutral-800/80 pb-4">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#FB4617]/10 text-[#FB4617] text-2xl mb-1">
-                    📩
-                  </div>
-                  <h3 className="text-lg font-semibold text-white">
-                    {language === "TR" ? "E-Posta Sahipliğini Doğrulayın" : "Verify Email Ownership"}
-                  </h3>
-                  <p className="text-xs text-neutral-400 max-w-sm mx-auto leading-relaxed">
-                    {language === "TR" ? (
-                      <>
-                        <strong className="text-[#FB4617]">{formData.email}</strong> adresinize 6 haneli bir güvenlik kodu gönderdik. Mesajınızın iletilmesi için lütfen kodu girin.
-                      </>
-                    ) : (
-                      <>
-                        We sent a 6-digit security code to <strong className="text-[#FB4617]">{formData.email}</strong>. Enter it below to verify and deliver your message.
-                      </>
-                    )}
-                  </p>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-xs font-mono text-neutral-300">
-                      {language === "TR" ? "6 Haneli Onay Kodu" : "6-Digit Security Code"}
-                    </label>
-                    <span className={`text-xs font-mono font-bold ${timeLeft < 60 ? "text-rose-400 animate-pulse" : "text-[#FB4617]"}`}>
-                      ⏱️ {formatTime(timeLeft)}
-                    </span>
-                  </div>
-                  <input
-                    required
-                    type="text"
-                    maxLength={6}
-                    autoFocus
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
-                    placeholder="123456"
-                    className="w-full bg-[#0d0d0d] border-2 border-neutral-800 rounded-xl px-4 py-3.5 text-center text-2xl tracking-[8px] sm:tracking-[12px] font-mono text-white placeholder-neutral-700 focus:outline-none focus:border-[#FB4617] transition-all"
-                  />
-                </div>
-
-                <div className="space-y-2.5">
-                  <button
-                    disabled={status === "verifying" || timeLeft <= 0 || otpCode.length !== 6}
-                    type="submit"
-                    className="w-full py-3.5 sm:py-4 rounded-xl bg-[#FB4617] hover:bg-[#e03d12] text-white text-sm font-medium transition-all duration-300 shadow-lg shadow-[#FB4617]/20 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    {status === "verifying" ? (
-                      <>
-                        <span className="animate-spin">⏳</span>
-                        <span>{language === "TR" ? "Doğrulanıyor ve İletiliyor..." : "Verifying & Delivering..."}</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>✓</span>
-                        <span>{language === "TR" ? "Kodu Onayla & Mesajı Gönder" : "Verify Code & Send Message"}</span>
-                      </>
-                    )}
-                  </button>
-
-                  <div className="flex items-center justify-between pt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStep("form");
-                        setStatus("idle");
-                        setFeedbackMessage("");
-                      }}
-                      className="text-xs font-mono text-neutral-400 hover:text-white transition-colors cursor-pointer"
-                    >
-                      ← {language === "TR" ? "Bilgileri Düzenle" : "Edit Info"}
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={status === "sending_otp"}
-                      onClick={handleRequestOtp}
-                      className="text-xs font-mono text-[#FB4617] hover:underline transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      ↻ {language === "TR" ? "Kodu Tekrar Gönder" : "Resend Code"}
-                    </button>
-                  </div>
-                </div>
-              </form>
-            )}
-
-            {/* GERİ BİLDİRİM KUTULARI */}
             {status === "success" && (
               <div className="bg-emerald-950/50 border border-emerald-500/50 text-emerald-300 p-4 rounded-xl text-xs font-mono text-center space-y-1">
                 <div className="text-lg">✓</div>
@@ -569,7 +378,7 @@ export default function ContactPage() {
                 <div>{feedbackMessage}</div>
               </div>
             )}
-          </div>
+          </form>
         </div>
 
       </div>
