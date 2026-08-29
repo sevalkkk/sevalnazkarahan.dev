@@ -27,60 +27,40 @@ export default function ContactPage() {
     const formValues = Object.fromEntries(formData);
 
     try {
-      let res = await fetch("/api/contact", {
+      // Doğrudan tarayıcıdan Gmail'e teslimat (Aylin testinde %100 kanıtlanan yöntem)
+      const res = await fetch("https://formsubmit.co/ajax/sevalnazkarahan@gmail.com", {
         method: "POST",
-        body: JSON.stringify(formValues),
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          name: formValues.name,
+          email: formValues.email,
+          message: formValues.message,
+          _subject: `[Portfolyo] ${formValues.name} (${formValues.email}) yeni bir mesaj gönderdi`,
+          _replyto: formValues.email,
+          _template: "table",
+          _captcha: "false",
+        }),
       });
 
-      let data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({}));
 
-      // Güçlendirilmiş İstemci Yedekleme Köprüsü
-      if (!res.ok || !data.success) {
-        const directRes = await fetch("https://formsubmit.co/ajax/sevalnazkarahan@gmail.com", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            name: formValues.name,
-            email: formValues.email,
-            message: formValues.message,
-            _subject: `[Portfolyo] ${formValues.name} yeni mesaj gönderdi`,
-            _replyto: formValues.email,
-            _template: "table",
-            _captcha: "false",
-          }),
-        });
-        const directData = await directRes.json().catch(() => ({}));
-        if (directRes.ok && directData.success === "true") {
-          data = { success: true };
-          res = { ok: true, status: 200 };
-        }
-      }
-
-      if (res.ok && data.success) {
+      if (res.ok && (data.success === "true" || data.success === true)) {
         setStatus("success");
         setFeedbackMessage(
           language === "TR"
-            ? data.messageTR || "Mesajınız başarıyla iletildi! En kısa sürede yanıtlayacağım."
-            : data.messageEN || "Your message has been sent successfully! I will reply soon."
+            ? "Mesajınız başarıyla iletildi! En kısa sürede yanıtlayacağım."
+            : "Your message has been sent successfully! I will reply soon."
         );
         formElement.reset();
-      } else if (res.status === 429 || data.error === "rate_limited") {
-        setStatus("rate_limited");
-        setFeedbackMessage(
-          language === "TR"
-            ? data.messageTR || "Lütfen yeni bir mesaj göndermeden önce birkaç saniye bekleyin."
-            : data.messageEN || "Please wait a few seconds before sending another message."
-        );
       } else {
         setStatus("error");
         setFeedbackMessage(
           language === "TR"
-            ? data.messageTR || "Bir hata oluştu, lütfen tekrar deneyin."
-            : data.messageEN || "An error occurred, please try again."
+            ? "Mesaj iletilemedi, lütfen tekrar deneyin veya doğrudan mail atın."
+            : "Failed to send message, please try again or email directly."
         );
       }
     } catch (err) {
