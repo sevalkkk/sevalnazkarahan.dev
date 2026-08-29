@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     const trimmedName = (name || "").toString().trim();
     const trimmedMessage = (message || "").toString().trim();
     const receiverEmail = process.env.CONTACT_RECEIVER_EMAIL || "sevalnazkarahan@gmail.com";
-    const fromEmail = process.env.RESEND_FROM_EMAIL || "Portfolio Contact <onboarding@resend.dev>";
+    const fromEmail = process.env.RESEND_FROM_EMAIL || "Seval Naz Karahan <contact@sevalnazkarahan.dev>";
 
     // =========================================================================
     // AKSIYON 1: DOĞRULAMA KODU (OTP) ÜRET VE ZİYARETÇİNİN MAİLİNE GÖNDER
