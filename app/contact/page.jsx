@@ -18,6 +18,77 @@ export default function ContactPage() {
     }
   }, [language]);
 
+  // Sahte / Geçici (Disposable) e-posta sağlayıcıları listesi
+  const DISPOSABLE_EMAIL_DOMAINS = new Set([
+    "mailinator.com",
+    "tempmail.com",
+    "temp-mail.org",
+    "10minutemail.com",
+    "guerrillamail.com",
+    "trashmail.com",
+    "yopmail.com",
+    "sharklasers.com",
+    "dispostable.com",
+    "getairmail.com",
+    "fakemailgenerator.com",
+    "burnermail.io",
+    "throwawaymail.com",
+    "crazymailing.com",
+    "nada.ltd",
+    "tempail.com",
+    "mytemp.email",
+    "mohmal.com",
+  ]);
+
+  // Geçersiz / Sahte Kalıplar
+  const FAKE_PATTERNS = [
+    /^test@test/i,
+    /^asdasd@/i,
+    /^qwe@/i,
+    /^abc@xyz/i,
+    /^123@/i,
+    /^aaa@/i,
+    /^admin@admin/i,
+    /^user@example/i,
+    /^noone@/i,
+  ];
+
+  const validateEmail = (emailStr) => {
+    if (!emailStr || typeof emailStr !== "string") return false;
+    const cleanEmail = emailStr.trim().toLowerCase();
+
+    // 1. Temel RFC 5322 Regex Doğrulaması
+    const emailRegex =
+      /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+    if (!emailRegex.test(cleanEmail)) return false;
+
+    // 2. Ardışık nokta, baştaki/sondaki geçersiz karakter kontrolleri
+    if (cleanEmail.includes("..") || cleanEmail.startsWith(".") || cleanEmail.endsWith(".")) return false;
+
+    const parts = cleanEmail.split("@");
+    if (parts.length !== 2) return false;
+
+    const [userPart, domainPart] = parts;
+    if (userPart.length < 2 || domainPart.length < 3) return false;
+
+    // 3. Domain ve TLD (Uzantı) Doğrulaması
+    const domainParts = domainPart.split(".");
+    if (domainParts.length < 2) return false;
+
+    const tld = domainParts[domainParts.length - 1];
+    if (!tld || tld.length < 2 || !/^[a-zA-Z]+$/.test(tld)) return false;
+
+    // 4. Geçici / Sahte Domain Kontrolü
+    if (DISPOSABLE_EMAIL_DOMAINS.has(domainPart)) return false;
+
+    // 5. Sahte / Test Kalıpları Kontrolü
+    for (const pattern of FAKE_PATTERNS) {
+      if (pattern.test(cleanEmail)) return false;
+    }
+
+    return true;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setStatus("sending");
@@ -26,11 +97,47 @@ export default function ContactPage() {
     const formData = new FormData(formElement);
     const formValues = Object.fromEntries(formData);
 
-    const email = (formValues.email || "").toString().trim().toLowerCase();
+    const name = (formValues.name || "").toString().trim();
+    const rawEmail = (formValues.email || "").toString().trim();
+    const email = rawEmail.toLowerCase();
+    const message = (formValues.message || "").toString().trim();
+
+    // 1. Ad & Mesaj Uzunluk Kontrolü
+    if (name.length < 2) {
+      setStatus("error");
+      setFeedbackMessage(
+        language === "TR"
+          ? "Lütfen geçerli bir ad ve soyad girin (en az 2 karakter)."
+          : "Please enter a valid full name (at least 2 characters)."
+      );
+      return;
+    }
+
+    if (message.length < 5) {
+      setStatus("error");
+      setFeedbackMessage(
+        language === "TR"
+          ? "Lütfen mesajınızı biraz daha detaylandırın (en az 5 karakter)."
+          : "Please provide a bit more detail in your message (at least 5 characters)."
+      );
+      return;
+    }
+
+    // 2. Gerçek / Geçerli E-Posta Yetkilendirme & Doğrulama Kontrolü
+    if (!validateEmail(email)) {
+      setStatus("error");
+      setFeedbackMessage(
+        language === "TR"
+          ? "Girdiğiniz e-posta adresi geçersiz veya sahte görünüyor. Lütfen gerçek ve aktif bir kurumsal/kişisel e-posta adresi girin (örn: adiniz@sirket.com veya adiniz@gmail.com)."
+          : "The email address you entered is invalid. Please enter a real and active email address (e.g. name@company.com or name@gmail.com)."
+      );
+      return;
+    }
+
+    // 3. 24 Saat İçinde Aynı E-Posta ile Gönderim Sınırlaması (Rate Limit)
     const rateLimitKey = `portfolio_contact_limit_${email}`;
     const RATE_LIMIT_MS = 24 * 60 * 60 * 1000; // 24 saat
 
-    // 24 Saat İçinde Aynı E-Posta Kontrolü
     if (typeof window !== "undefined") {
       const lastSentStr = localStorage.getItem(rateLimitKey);
       if (lastSentStr) {
@@ -41,8 +148,8 @@ export default function ContactPage() {
           setStatus("rate_limited");
           setFeedbackMessage(
             language === "TR"
-              ? `Bu e-posta adresiyle son 24 saat içinde zaten bir mesaj gönderdiniz. Lütfen ${remainingHours} saat sonra tekrar deneyin.`
-              : `You have already sent a message from this email in the last 24 hours. Please try again in ${remainingHours} hours.`
+              ? `Bu e-posta adresiyle (${email}) son 24 saat içinde zaten bir mesaj ilettiniz. Yeni bir mesaj gönderebilmeniz için kalan süre: ${remainingHours} saat.`
+              : `You have already sent a message from this email (${email}) in the last 24 hours. Please wait ${remainingHours} hour(s) before sending again.`
           );
           return;
         }
@@ -50,7 +157,7 @@ export default function ContactPage() {
     }
 
     try {
-      // Doğrudan tarayıcıdan Gmail'e teslimat
+      // Doğrudan Gmail'e Güvenli Teslimat
       const res = await fetch("https://formsubmit.co/ajax/sevalnazkarahan@gmail.com", {
         method: "POST",
         headers: {
@@ -58,11 +165,11 @@ export default function ContactPage() {
           Accept: "application/json",
         },
         body: JSON.stringify({
-          name: formValues.name,
-          email: formValues.email,
-          message: formValues.message,
-          _subject: `[Portfolyo] ${formValues.name} (${formValues.email}) yeni bir mesaj gönderdi`,
-          _replyto: formValues.email,
+          name: name,
+          email: email,
+          message: message,
+          _subject: `[Portfolyo] ${name} (${email}) yeni bir mesaj gönderdi`,
+          _replyto: email,
           _template: "table",
           _captcha: "false",
         }),
@@ -71,14 +178,14 @@ export default function ContactPage() {
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && (data.success === "true" || data.success === true)) {
-        // Başarılı gönderimde 24 saatlik zaman damgasını kaydet
+        // Başarılı gönderimde 24 saatlik zaman damgasını yerel depolamaya mühürle
         if (typeof window !== "undefined") {
           localStorage.setItem(rateLimitKey, Date.now().toString());
         }
         setStatus("success");
         setFeedbackMessage(
           language === "TR"
-            ? "Mesajınız başarıyla iletildi! En kısa sürede yanıtlayacağım."
+            ? "Mesajınız başarıyla iletildi! En kısa sürede sizinle iletişime geçeceğim."
             : "Your message has been sent successfully! I will reply soon."
         );
         formElement.reset();
@@ -86,8 +193,8 @@ export default function ContactPage() {
         setStatus("error");
         setFeedbackMessage(
           language === "TR"
-            ? "Mesaj iletilemedi, lütfen tekrar deneyin veya doğrudan mail atın."
-            : "Failed to send message, please try again or email directly."
+            ? "Mesaj sunucuya iletilemedi, lütfen e-posta adresinizi kontrol edip tekrar deneyin."
+            : "Failed to send message, please verify your email and try again."
         );
       }
     } catch (err) {
