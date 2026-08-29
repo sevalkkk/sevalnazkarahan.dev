@@ -26,8 +26,31 @@ export default function ContactPage() {
     const formData = new FormData(formElement);
     const formValues = Object.fromEntries(formData);
 
+    const email = (formValues.email || "").toString().trim().toLowerCase();
+    const rateLimitKey = `portfolio_contact_limit_${email}`;
+    const RATE_LIMIT_MS = 24 * 60 * 60 * 1000; // 24 saat
+
+    // 24 Saat İçinde Aynı E-Posta Kontrolü
+    if (typeof window !== "undefined") {
+      const lastSentStr = localStorage.getItem(rateLimitKey);
+      if (lastSentStr) {
+        const lastSent = parseInt(lastSentStr, 10);
+        const elapsed = Date.now() - lastSent;
+        if (!isNaN(lastSent) && elapsed < RATE_LIMIT_MS) {
+          const remainingHours = Math.max(1, Math.ceil((RATE_LIMIT_MS - elapsed) / (1000 * 60 * 60)));
+          setStatus("rate_limited");
+          setFeedbackMessage(
+            language === "TR"
+              ? `Bu e-posta adresiyle son 24 saat içinde zaten bir mesaj gönderdiniz. Lütfen ${remainingHours} saat sonra tekrar deneyin.`
+              : `You have already sent a message from this email in the last 24 hours. Please try again in ${remainingHours} hours.`
+          );
+          return;
+        }
+      }
+    }
+
     try {
-      // Doğrudan tarayıcıdan Gmail'e teslimat (Aylin testinde %100 kanıtlanan yöntem)
+      // Doğrudan tarayıcıdan Gmail'e teslimat
       const res = await fetch("https://formsubmit.co/ajax/sevalnazkarahan@gmail.com", {
         method: "POST",
         headers: {
@@ -48,6 +71,10 @@ export default function ContactPage() {
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && (data.success === "true" || data.success === true)) {
+        // Başarılı gönderimde 24 saatlik zaman damgasını kaydet
+        if (typeof window !== "undefined") {
+          localStorage.setItem(rateLimitKey, Date.now().toString());
+        }
         setStatus("success");
         setFeedbackMessage(
           language === "TR"
