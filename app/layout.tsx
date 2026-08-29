@@ -108,8 +108,10 @@ export const metadata: Metadata = {
       follow: true,
       "max-video-preview": -1,
       "max-image-preview": "large",
-      "max-snippet": -1,
     },
+  },
+  verification: {
+    google: "google02bc06a1677cfb6c",
   },
   manifest: "/manifest.webmanifest",
 };
